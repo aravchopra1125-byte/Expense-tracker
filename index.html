@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Expense Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1e1e1e">
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; background: #121212; color: #fff; }
+    input, select, button {
+      width: 100%; margin: 5px 0; padding: 10px; font-size: 16px;
+      background: #1e1e1e; color: #fff; border: 1px solid #444;
+    }
+    .balance { font-weight: bold; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #444; padding: 8px; text-align: center; }
+    th { background: #222; }
+    canvas { margin-top: 20px; background: #fff; }
+    .history { margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<h2>Expense Tracker</h2>
+
+<select id="type">
+  <option value="Expense">Expense</option>
+  <option value="Receive">Receive</option>
+</select>
+
+<select id="method">
+  <option value="Cash">Cash</option>
+  <option value="UPI">UPI</option>
+</select>
+
+<input type="number" id="amount" placeholder="Amount">
+<input type="text" id="note" placeholder="Note (optional)">
+<button onclick="addTransaction()">Add Transaction</button>
+
+<div class="balance" id="cashBalance">Cash Balance: ₹0</div>
+<div class="balance" id="upiBalance">UPI Balance: ₹0</div>
+<div class="balance" id="totalBalance">Total Balance: ₹0</div>
+
+<label>View: 
+  <select id="filter" onchange="renderHistory(); updateCharts();">
+    <option value="all">All</option>
+    <option value="week">This Week</option>
+    <option value="month">This Month</option>
+  </select>
+</label>
+<input type="text" id="search" placeholder="Search..." oninput="renderHistory(); updateCharts();">
+
+<div class="history">
+  <h3>Transaction History</h3>
+  <table>
+    <thead><tr><th>Type</th><th>Method</th><th>Amount</th><th>Note</th><th>Date</th></tr></thead>
+    <tbody id="historyTable"></tbody>
+  </table>
+</div>
+
+<canvas id="expenseChart" height="200"></canvas>
+<canvas id="receiveChart" height="200"></canvas>
+
+<script>
+let transactions = JSON.parse(localStorage.getItem("transactions")) || [];
+
+function addTransaction() {
+  const type = document.getElementById("type").value;
+  const method = document.getElementById("method").value;
+  const amount = parseFloat(document.getElementById("amount").value);
+  const note = document.getElementById("note").value;
+  const date = new Date();
+  if (!amount || amount <= 0) return alert("Enter valid amount");
+  transactions.push({ type, method, amount, note, date: date.toISOString() });
+  localStorage.setItem("transactions", JSON.stringify(transactions));
+  document.getElementById("amount").value = "";
+  document.getElementById("note").value = "";
+  updateBalances();
+  renderHistory();
+  updateCharts();
+}
+
+function updateBalances() {
+  let cash = 0, upi = 0;
+  for (let tx of transactions) {
+    let amt = parseFloat(tx.amount);
+    if (tx.type === "Receive") {
+      if (tx.method === "Cash") cash += amt;
+      else upi += amt;
+    } else {
+      if (tx.method === "Cash") cash -= amt;
+      else upi -= amt;
+    }
+  }
+  document.getElementById("cashBalance").innerText = "Cash Balance: ₹" + cash.toFixed(2);
+  document.getElementById("upiBalance").innerText = "UPI Balance: ₹" + upi.toFixed(2);
+  document.getElementById("totalBalance").innerText = "Total Balance: ₹" + (cash + upi).toFixed(2);
+}
+
+function filterTransactions() {
+  const f = document.getElementById("filter").value;
+  const search = document.getElementById("search").value.toLowerCase();
+  const now = new Date();
+  return transactions.filter(tx => {
+    const d = new Date(tx.date);
+    if (f === "week") {
+      const oneWeekAgo = new Date(now);
+      oneWeekAgo.setDate(now.getDate() - 7);
+      if (d < oneWeekAgo) return false;
+    } else if (f === "month") {
+      if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+    }
+    return tx.note.toLowerCase().includes(search) || tx.method.toLowerCase().includes(search) || tx.type.toLowerCase().includes(search);
+  });
+}
+
+function renderHistory() {
+  const table = document.getElementById("historyTable");
+  table.innerHTML = "";
+  for (let tx of filterTransactions().reverse()) {
+    table.innerHTML += `<tr>
+      <td>${tx.type}</td>
+      <td>${tx.method}</td>
+      <td>₹${parseFloat(tx.amount).toFixed(2)}</td>
+      <td>${tx.note}</td>
+      <td>${new Date(tx.date).toLocaleString()}</td>
+    </tr>`;
+  }
+}
+
+let expenseChart, receiveChart;
+
+function updateCharts() {
+  const data = filterTransactions();
+  const expCash = data.filter(t => t.type==='Expense' && t.method==='Cash').reduce((a,b)=>a+parseFloat(b.amount), 0);
+  const expUPI = data.filter(t => t.type==='Expense' && t.method==='UPI').reduce((a,b)=>a+parseFloat(b.amount), 0);
+  const recCash = data.filter(t => t.type==='Receive' && t.method==='Cash').reduce((a,b)=>a+parseFloat(b.amount), 0);
+  const recUPI = data.filter(t => t.type==='Receive' && t.method==='UPI').reduce((a,b)=>a+parseFloat(b.amount), 0);
+
+  if (expenseChart) expenseChart.destroy();
+  if (receiveChart) receiveChart.destroy();
+
+  expenseChart = new Chart(document.getElementById("expenseChart"), {
+    type: 'pie',
+    data: {
+      labels: ['Cash Expense', 'UPI Expense'],
+      datasets: [{
+        label: 'Expenses',
+        data: [expCash, expUPI],
+        backgroundColor: ['#ff4c4c', '#ffb84c']
+      }]
+    }
+  });
+
+  receiveChart = new Chart(document.getElementById("receiveChart"), {
+    type: 'pie',
+    data: {
+      labels: ['Cash Receive', 'UPI Receive'],
+      datasets: [{
+        label: 'Receives',
+        data: [recCash, recUPI],
+        backgroundColor: ['#4cff4c', '#4cd6ff']
+      }]
+    }
+  });
+}
+
+updateBalances();
+renderHistory();
+updateCharts();
+
+// PWA Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js')
+    .then(() => console.log('Service Worker Registered'));
+}
+</script>
+</body>
+</html>
